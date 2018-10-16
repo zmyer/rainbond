@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -42,12 +42,15 @@ type Config struct {
 	APISSL            bool
 	APICertFile       string
 	APIKeyFile        string
+	APICaFile         string
 	WebsocketSSL      bool
 	WebsocketCertFile string
 	WebsocketKeyFile  string
 	WebsocketAddr     string
 	Opentsdb          string
 	RegionTag         string
+	LoggerFile        string
+	Debug             bool
 }
 
 //APIServer  apiserver server
@@ -71,6 +74,7 @@ func (a *APIServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&a.APIAddrSSL, "api-addr-ssl", ":8443", "the api server listen address")
 	fs.StringVar(&a.WebsocketAddr, "ws-addr", ":6060", "the websocket server listen address")
 	fs.BoolVar(&a.APISSL, "api-ssl-enable", false, "whether to enable websocket  SSL")
+	fs.StringVar(&a.APICaFile, "client-ca-file", "", "api ssl ca file")
 	fs.StringVar(&a.APICertFile, "api-ssl-certfile", "", "api ssl cert file")
 	fs.StringVar(&a.APIKeyFile, "api-ssl-keyfile", "", "api ssl cert file")
 	fs.BoolVar(&a.WebsocketSSL, "ws-ssl-enable", false, "whether to enable websocket  SSL")
@@ -87,6 +91,8 @@ func (a *APIServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&a.EtcdEndpoint, "etcd", []string{"http://127.0.0.1:2379"}, "etcd server or proxy address")
 	fs.StringVar(&a.Opentsdb, "opentsdb", "127.0.0.1:4242", "opentsdb server config")
 	fs.StringVar(&a.RegionTag, "region-tag", "test-ali", "region tag setting")
+	fs.StringVar(&a.LoggerFile, "logger-file", "/logs/request.log", "request log file path")
+	fs.BoolVar(&a.Debug, "debug", false, "open debug will enable pprof")
 }
 
 //SetLog 设置log
@@ -96,5 +102,6 @@ func (a *APIServer) SetLog() {
 		fmt.Println("set log level error." + err.Error())
 		return
 	}
+	logrus.Infof("Etcd Server : %+v", a.Config.EtcdEndpoint)
 	logrus.SetLevel(level)
 }

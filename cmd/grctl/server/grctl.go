@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,32 +21,27 @@ package server
 import (
 	"os"
 	"sort"
+
+	version "github.com/goodrain/rainbond/cmd"
+	"github.com/goodrain/rainbond/grctl/cmd"
 	"github.com/urfave/cli"
-	"github.com/goodrain/rainbond/pkg/grctl/cmd"
-	"github.com/Sirupsen/logrus"
-	"github.com/goodrain/rainbond/pkg/grctl/clients"
-	"github.com/goodrain/rainbond/cmd/grctl/option"
 )
 
-//var App *cli.App=cli.NewApp()
 var App *cli.App
-func Run() error {
 
-	App=cli.NewApp()
-	App.Version=option.Version
-	App.Flags = []cli.Flag {
+//Run Run
+func Run() error {
+	App = cli.NewApp()
+	App.Version = version.GetVersion()
+	App.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name: "config, c",
-			Value: "/etc/goodrain/grctl.json",
-			Usage: "Load configuration from `FILE`",
+			Name:  "config, c",
+			Value: "",
+			Usage: "default <USER_HOME>/.rbd/grctl.yaml",
 		},
 	}
 	sort.Sort(cli.FlagsByName(App.Flags))
 	sort.Sort(cli.CommandsByName(App.Commands))
-	App.Commands=cmd.GetCmds()
-	if err := clients.InitNodeClient("http://127.0.0.1:6100/v2"); err != nil {
-		logrus.Warnf("error config region")
-	}
-
+	App.Commands = cmd.GetCmds()
 	return App.Run(os.Args)
 }

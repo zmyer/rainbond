@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/goodrain/rainbond/cmd"
 	"github.com/goodrain/rainbond/cmd/webcli/option"
 	"github.com/goodrain/rainbond/cmd/webcli/server"
 
@@ -29,6 +30,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		cmd.ShowVersion("webcli")
+	}
 	s := option.NewWebCliServer()
 	s.AddFlags(pflag.CommandLine)
 	pflag.Parse()

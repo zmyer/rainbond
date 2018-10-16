@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -38,6 +38,8 @@ type Config struct {
 	MQAPI                string
 	NodeName             string
 	NodeAPI              string
+	Listen               string
+	HostIP               string
 }
 
 //Worker  worker server
@@ -59,6 +61,7 @@ func (a *Worker) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&a.EtcdTimeout, "etcd-timeout", 5, "etcd http timeout seconds")
 	fs.StringVar(&a.EtcdPrefix, "etcd-prefix", "/store", "the etcd data save key prefix ")
 	fs.StringVar(&a.PrometheusMetricPath, "metric", "/metrics", "prometheus metrics path")
+	fs.StringVar(&a.Listen, "listen", ":6369", "prometheus listen host and port")
 	fs.StringVar(&a.DBType, "db-type", "mysql", "db type mysql or etcd")
 	fs.StringVar(&a.MysqlConnectionInfo, "mysql", "root:admin@tcp(127.0.0.1:3306)/region", "mysql db connection info")
 	fs.StringSliceVar(&a.EventLogServers, "event-servers", []string{"127.0.0.1:6367"}, "event log server address. simple lb")
@@ -66,7 +69,8 @@ func (a *Worker) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&a.MaxTasks, "max-tasks", 50, "the max tasks for per node")
 	fs.StringVar(&a.MQAPI, "mq-api", "127.0.0.1:6300", "acp_mq api")
 	fs.StringVar(&a.RunMode, "run", "sync", "sync data when worker start")
-	fs.StringVar(&a.NodeName, "node-name", "", "the name of this name,it must be global unique name")
+	fs.StringVar(&a.NodeName, "node-name", "", "the name of this worker,it must be global unique name")
+	fs.StringVar(&a.HostIP, "host-ip", "", "the ip of this worker,it must be global connected ip")
 	fs.StringVar(&a.NodeAPI, "node-api", "http://172.30.42.1:6100", "node discover api, node docker endpoints")
 }
 

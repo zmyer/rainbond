@@ -1,19 +1,18 @@
-
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
- 
+
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version. For any non-GPL usage of Rainbond,
 // one or multiple Commercial Licenses authorized by Goodrain Co., Ltd.
 // must be obtained first.
- 
+
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
- 
+
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
@@ -24,20 +23,22 @@ import (
 	"path"
 	"syscall"
 
-	"github.com/goodrain/rainbond/pkg/eventlog/cluster"
-	"github.com/goodrain/rainbond/pkg/eventlog/conf"
-	"github.com/goodrain/rainbond/pkg/eventlog/entry"
-	"github.com/goodrain/rainbond/pkg/eventlog/exit/web"
-	"github.com/goodrain/rainbond/pkg/eventlog/exit/webhook"
-	"github.com/goodrain/rainbond/pkg/eventlog/store"
+	"github.com/goodrain/rainbond/discover"
+	"github.com/goodrain/rainbond/eventlog/cluster"
+	"github.com/goodrain/rainbond/eventlog/conf"
+	"github.com/goodrain/rainbond/eventlog/entry"
+	"github.com/goodrain/rainbond/eventlog/exit/web"
+	"github.com/goodrain/rainbond/eventlog/exit/webhook"
+	"github.com/goodrain/rainbond/eventlog/store"
 
 	"os"
 
 	"fmt"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/goodrain/rainbond/eventlog/db"
 	"github.com/spf13/pflag"
-	"github.com/goodrain/rainbond/pkg/eventlog/db"
+	"github.com/goodrain/rainbond/util"
 )
 
 type LogServer struct {
@@ -107,6 +108,9 @@ func (s *LogServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.Conf.EventStore.DB.HomePath, "docker.log.homepath", "/grdata/logs/", "container log persistent home path")
 	fs.StringVar(&s.Conf.WebHook.ConsoleURL, "webhook.console.url", "http://console.goodrain.me", "console web api url")
 	fs.StringVar(&s.Conf.WebHook.ConsoleToken, "webhook.console.token", "", "console web api token")
+	fs.StringVar(&s.Conf.Entry.NewMonitorMessageServerConf.ListenerHost, "monitor.udp.host", "0.0.0.0", "receive new monitor udp server host")
+	fs.IntVar(&s.Conf.Entry.NewMonitorMessageServerConf.ListenerPort, "monitor.udp.port", 6166, "receive new monitor udp server port")
+	fs.StringVar(&s.Conf.Cluster.Discover.NodeIDFile, "nodeid-file", "/opt/rainbond/etc/node/node_host_uuid.conf", "the unique ID for this node. Just specify, don't modify")
 }
 
 //InitLog 初始化log
@@ -193,6 +197,7 @@ func (s *LogServer) Run() error {
 	if err != nil {
 		return err
 	}
+	healthInfo := storeManager.HealthCheck()
 	if err := storeManager.Run(); err != nil {
 		return err
 	}
@@ -204,7 +209,7 @@ func (s *LogServer) Run() error {
 		}
 		defer s.Cluster.Stop()
 	}
-	s.SocketServer = web.NewSocket(s.Conf.WebSocket, log.WithField("module", "SocketServer"), storeManager, s.Cluster)
+	s.SocketServer = web.NewSocket(s.Conf.WebSocket, log.WithField("module", "SocketServer"), storeManager, s.Cluster, healthInfo)
 	if err := s.SocketServer.Run(); err != nil {
 		return err
 	}
@@ -215,6 +220,48 @@ func (s *LogServer) Run() error {
 		return err
 	}
 	defer s.Entry.Stop()
+
+	//服务注册
+	grpckeepalive, err := discover.CreateKeepAlive(s.Conf.Cluster.Discover.EtcdAddr, "event_log_event_grpc",
+		s.Conf.Cluster.Discover.InstanceIP, s.Conf.Cluster.Discover.InstanceIP, 6367)
+	if err != nil {
+		return err
+	}
+	if err := grpckeepalive.Start(); err != nil {
+		return err
+	}
+	defer grpckeepalive.Stop()
+
+	udpkeepalive, err := discover.CreateKeepAlive(s.Conf.Cluster.Discover.EtcdAddr, "event_log_event_udp",
+		s.Conf.Cluster.Discover.InstanceIP, s.Conf.Cluster.Discover.InstanceIP, s.Conf.Entry.NewMonitorMessageServerConf.ListenerPort)
+	if err != nil {
+		return err
+	}
+	if err := udpkeepalive.Start(); err != nil {
+		return err
+	}
+	defer udpkeepalive.Stop()
+
+	hostID, err := util.ReadHostID(s.Conf.Cluster.Discover.NodeIDFile)
+	if err != nil {
+		return err
+	}
+	var id string
+	if len(hostID) < 12 {
+		id = hostID
+	} else {
+		id = hostID[len(hostID)-12:]
+	}
+	httpkeepalive, err := discover.CreateKeepAlive(s.Conf.Cluster.Discover.EtcdAddr, "event_log_event_http",
+		id, s.Conf.Cluster.Discover.InstanceIP, s.Conf.WebSocket.BindPort)
+	if err != nil {
+		return err
+	}
+	if err := httpkeepalive.Start(); err != nil {
+		return err
+	}
+	defer httpkeepalive.Stop()
+
 	term := make(chan os.Signal)
 	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
 	select {

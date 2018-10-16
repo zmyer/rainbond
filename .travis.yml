@@ -1,0 +1,14 @@
+language: go
+
+go_import_path: github.com/goodrain/rainbond
+
+go:
+  - "1.8.3"
+
+# Run coverage tests.
+matrix:
+  fast_finish: true
+  allow_failures:
+    - go: "1.8.3"
+script:
+  - make build

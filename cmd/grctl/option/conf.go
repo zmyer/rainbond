@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,85 +19,76 @@
 package option
 
 import (
-	"github.com/urfave/cli"
-	"os"
-	"github.com/Sirupsen/logrus"
 	"io/ioutil"
-	"encoding/json"
+	"os"
+	"path"
+
+	"github.com/Sirupsen/logrus"
+	"github.com/goodrain/rainbond/api/region"
+	"github.com/goodrain/rainbond/builder/sources"
+	"github.com/urfave/cli"
+	yaml "gopkg.in/yaml.v2"
 	//"strings"
-
 )
+
 var config Config
+
+//Config Config
 type Config struct {
-	RegionMysql   *RegionMysql `json:"RegionMysql"`
-	Kubernets     *Kubernets   `json:"Kubernets"`
-	RegionAPI     *RegionAPI   `json:"RegionAPI"`
-	DockerLogPath string       `json:"DockerLogPath"`
+	RegionMysql   RegionMysql    `yaml:"region_db"`
+	Kubernets     Kubernets      `yaml:"kube"`
+	RegionAPI     region.APIConf `yaml:"region_api"`
+	DockerLogPath string         `yaml:"docker_log_path"`
 }
+
+//RegionMysql RegionMysql
 type RegionMysql struct {
-	URL      string `json:"URL"`
-	Pass     string `json:"Pass"`
-	User     string `json:"User"`
-	Database string `json:"Database"`
+	URL      string `yaml:"url"`
+	Pass     string `yaml:"pass"`
+	User     string `yaml:"user"`
+	Database string `yaml:"database"`
 }
+
+//Kubernets Kubernets
 type Kubernets struct {
-	Master string
-}
-type RegionAPI struct {
-	URL   string
-	Token string
-	Type  string
+	Master string `yaml:"master"`
 }
 
-
+//LoadConfig 加载配置
 func LoadConfig(ctx *cli.Context) (Config, error) {
-	var c Config
-	_, err := os.Stat(ctx.GlobalString("config"))
-	if err != nil {
-		//return LoadConfigByRegion(c, ctx)
-		return c,err
+	config = Config{
+		RegionAPI: region.APIConf{
+			Endpoints: []string{"http://127.0.0.1:8888"},
+		},
+		RegionMysql: RegionMysql{
+			User:     os.Getenv("MYSQL_USER"),
+			Pass:     os.Getenv("MYSQL_PASS"),
+			URL:      os.Getenv("MYSQL_URL"),
+			Database: os.Getenv("MYSQL_DB"),
+		},
 	}
-	data, err := ioutil.ReadFile(ctx.GlobalString("config"))
+	configfile := ctx.GlobalString("config")
+	if configfile == "" {
+		home, _ := sources.Home()
+		configfile = path.Join(home, ".rbd", "grctl.yaml")
+	}
+	_, err := os.Stat(configfile)
+	if err != nil {
+		return config, nil
+	}
+	data, err := ioutil.ReadFile(configfile)
 	if err != nil {
 		logrus.Warning("Read config file error ,will get config from region.", err.Error())
-		//return LoadConfigByRegion(c, ctx)
-		return c,err
+		return config, err
 	}
-	if err := json.Unmarshal(data, &c); err != nil {
+	if err := yaml.Unmarshal(data, &config); err != nil {
 		logrus.Warning("Read config file error ,will get config from region.", err.Error())
-		//return LoadConfigByRegion(c, ctx)
-		return c,err
+		return config, err
 	}
-	//if c.Kubernets == nil  {
-	//	return LoadConfigByRegion(c, ctx)
-	//}
-	config = c
-	return c, nil
+	return config, nil
 }
 
-//LoadConfigByRegion 通过regionAPI获取配置
-func LoadConfigByRegion(c Config, ctx *cli.Context) (Config, error) {
-	if c.RegionAPI == nil {
-		c.RegionAPI = &RegionAPI{
-			URL:   ctx.GlobalString("region.url"),
-			Token: "",
-		}
-	}
-	//data, err := region.LoadConfig(c.RegionAPI.URL, c.RegionAPI.Token)
-	//if err != nil {
-	//	logrus.Error("Get config from region error.", err.Error())
-	//	return c,err
-	//	//os.Exit(1)
-	//}
-	//if c.Kubernets == nil {
-	//	c.Kubernets = &Kubernets{
-	//		Master: strings.Replace(data["k8s"]["url"].(string), "/api/v1", "", -1),
-	//	}
-	//}
-	config = c
-	return c, nil
-}
-
+//GetConfig GetConfig
 func GetConfig() Config {
 	return config
 }

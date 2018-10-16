@@ -1,5 +1,5 @@
+// Copyright (C) 2014-2018 Goodrain Co., Ltd.
 // RAINBOND, Application Management Platform
-// Copyright (C) 2014-2017 Goodrain Co., Ltd.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,85 +20,89 @@ package server
 
 import (
 	"fmt"
+	"os"
+	"syscall"
 
 	"github.com/goodrain/rainbond/cmd/node/option"
-	"github.com/goodrain/rainbond/pkg/node/api/controller"
-	"github.com/goodrain/rainbond/pkg/node/core/job"
-	"github.com/goodrain/rainbond/pkg/node/core/k8s"
-	"github.com/goodrain/rainbond/pkg/node/core/store"
-	"github.com/goodrain/rainbond/pkg/node/masterserver"
-	"github.com/goodrain/rainbond/pkg/node/nodeserver"
+	"github.com/goodrain/rainbond/node/api"
+	"github.com/goodrain/rainbond/node/api/controller"
+	"github.com/goodrain/rainbond/node/core/store"
+	"github.com/goodrain/rainbond/node/kubecache"
+	"github.com/goodrain/rainbond/node/masterserver"
+	"github.com/goodrain/rainbond/node/nodem"
 
 	"github.com/Sirupsen/logrus"
 
-	eventLog "github.com/goodrain/rainbond/pkg/event"
+	eventLog "github.com/goodrain/rainbond/event"
 
-	"github.com/goodrain/rainbond/pkg/node/api"
-	"github.com/goodrain/rainbond/pkg/node/event"
+	"os/signal"
 )
 
 //Run start run
 func Run(c *option.Conf) error {
-	errChan := make(chan error, 1)
+	errChan := make(chan error, 3)
 	err := eventLog.NewManager(eventLog.EventConfig{
 		EventLogServers: c.EventLogServer,
 		DiscoverAddress: c.Etcd.Endpoints,
 	})
 	if err != nil {
 		logrus.Errorf("error creating eventlog manager")
+		return nil
 	}
 	defer eventLog.CloseManager()
 
-	// init etcd client
-	if err = store.NewClient(c); err != nil {
-		return fmt.Errorf("Connect to ETCD %s failed: %s",
-			c.Etcd.Endpoints, err)
-	}
-	if c.K8SConfPath != "" {
-		if err := k8s.NewK8sClient(c); err != nil {
-			return fmt.Errorf("Connect to K8S %s failed: %s",
-				c.K8SConfPath, err)
-		}
-	} else {
-		return fmt.Errorf("Connect to K8S %s failed: kubeconfig file not found",
-			c.K8SConfPath)
-	}
-
-	s, err := nodeserver.NewNodeServer(c) //todo 配置文件 done
+	kubecli, err := kubecache.NewKubeClient(c)
 	if err != nil {
 		return err
 	}
-	if err := s.Run(); err != nil {
-		logrus.Errorf(err.Error())
-		return err
+	defer kubecli.Stop()
+	// init etcd client
+	if err = store.NewClient(c); err != nil {
+		return fmt.Errorf("Connect to ETCD %s failed: %s", c.Etcd.Endpoints, err)
 	}
+	nodemanager, err := nodem.NewNodeManager(c)
+	if err != nil {
+		return fmt.Errorf("create node manager failed: %s", err)
+	}
+	if err := nodemanager.Start(errChan); err != nil {
+		return fmt.Errorf("start node manager failed: %s", err)
+	}
+	defer nodemanager.Stop()
 	//master服务在node服务之后启动
 	var ms *masterserver.MasterServer
 	if c.RunMode == "master" {
-		ms, err = masterserver.NewMasterServer(s.HostNode, k8s.K8S.Clientset)
+		ms, err = masterserver.NewMasterServer(nodemanager.GetCurrentNode(), kubecli)
 		if err != nil {
 			logrus.Errorf(err.Error())
 			return err
 		}
-		if err := ms.Start(); err != nil {
+		ms.Cluster.UpdateNode(nodemanager.GetCurrentNode())
+		if err := ms.Start(errChan); err != nil {
 			logrus.Errorf(err.Error())
 			return err
 		}
-		event.On(event.EXIT, ms.Stop)
+		defer ms.Stop(nil)
 	}
-	//启动API服务
-	apiManager := api.NewManager(*s.Conf, s.HostNode, ms)
-	apiManager.Start(errChan)
+	//create api manager
+	apiManager := api.NewManager(*c, nodemanager.GetCurrentNode(), ms, kubecli)
+	if err := apiManager.Start(errChan); err != nil {
+		return err
+	}
+	if err := nodemanager.AddAPIManager(apiManager); err != nil {
+		return err
+	}
 	defer apiManager.Stop()
 
-	// 注册退出事件
-	//todo conf.Exit cronsun.exit 重写
-	event.On(event.EXIT, s.Stop, option.Exit, job.Exit, controller.Exist)
-	// 监听退出信号
-	event.Wait()
-	// 处理退出事件
-	event.Emit(event.EXIT, nil)
-	logrus.Infof("exit success")
+	defer controller.Exist(nil)
+	//step finally: listen Signal
+	term := make(chan os.Signal)
+	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-term:
+		logrus.Warn("Received SIGTERM, exiting gracefully...")
+	case err := <-errChan:
+		logrus.Errorf("Received a error %s, exiting gracefully...", err.Error())
+	}
 	logrus.Info("See you next time!")
 	return nil
 }
